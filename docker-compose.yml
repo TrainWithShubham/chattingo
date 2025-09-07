@@ -3,11 +3,8 @@ version: '3.8'
 services:
   mysql:
     image: mysql:8.0
-    environment:
-      MYSQL_ROOT_PASSWORD: enter_root_password
-      MYSQL_DATABASE: chattingo
-      MYSQL_USER: chattingo
-      MYSQL_PASSWORD: user_password
+    env_file:
+      - ./backend/.env
     ports:
       - "3306:3306"
     volumes:
@@ -17,10 +14,8 @@ services:
 
   backend:
     build: ./backend
-    environment:
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/chattingo
-      SPRING_DATASOURCE_USERNAME: chattingo
-      SPRING_DATASOURCE_PASSWORD: password
+    env_file:
+      - ./backend/.env
     depends_on:
       - mysql
     networks:
@@ -28,6 +23,8 @@ services:
 
   frontend:
     build: ./frontend
+    env_file:
+      - ./frontend/.env
     networks:
       - chattingo-network
 
