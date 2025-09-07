@@ -1,11 +1,11 @@
 # Stage 1: Maven build environment
-FROM maven:3.9-openjdk-17 AS build-env
+FROM maven:3.9.6-eclipse-temurin-17 AS build-env
 WORKDIR /app
 COPY pom.xml ./
 RUN mvn dependency:go-offline
 
 # Stage 2: Build Spring Boot application
-FROM maven:3.9-openjdk-17 AS build
+FROM maven:3.9.6-eclipse-temurin-17 AS build
 WORKDIR /app
 COPY pom.xml ./
 COPY src ./src
