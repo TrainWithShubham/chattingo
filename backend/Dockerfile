@@ -12,7 +12,7 @@ COPY src ./src
 RUN mvn clean package -DskipTests
 
 # Stage 3: JRE runtime
-FROM openjdk:17-jre-slim AS runtime
+FROM eclipse-temurin:17-jre-alpine AS runtime
 WORKDIR /app
 COPY --from=build /app/target/*.jar app.jar
 EXPOSE 8080
