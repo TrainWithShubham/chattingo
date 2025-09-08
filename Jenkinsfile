@@ -20,10 +20,30 @@ pipeline {
             }
         }
 
-        stage('Build and Scan') {
+        stage('Build Images') {
             steps {
                 script {
-                    buildAndScanImages([
+                    buildImages([
+                        frontendRepo: env.FRONTEND_REPO,
+                        backendRepo: env.BACKEND_REPO,
+                        imageTag: env.IMAGE_TAG
+                    ])
+                }
+            }
+        }
+
+        stage('Scan Filesystem') {
+            steps {
+                script {
+                    scanFilesystem()
+                }
+            }
+        }
+
+        stage('Scan Images') {
+            steps {
+                script {
+                    scanImages([
                         frontendRepo: env.FRONTEND_REPO,
                         backendRepo: env.BACKEND_REPO,
                         imageTag: env.IMAGE_TAG
@@ -44,14 +64,35 @@ pipeline {
             }
         }
 
-        stage('Deploy Application') {
+        stage('Push Images') {
             steps {
                 script {
-                    deployApplication([
+                    pushImages([
                         frontendRepo: env.FRONTEND_REPO,
                         backendRepo: env.BACKEND_REPO,
                         imageTag: env.IMAGE_TAG,
-                        dockerCredentialsId: 'docker-hub-credentials',
+                        dockerCredentialsId: 'docker-hub-credentials'
+                    ])
+                }
+            }
+        }
+
+        stage('Update Compose') {
+            steps {
+                script {
+                    updateCompose([
+                        frontendRepo: env.FRONTEND_REPO,
+                        backendRepo: env.BACKEND_REPO,
+                        imageTag: env.IMAGE_TAG
+                    ])
+                }
+            }
+        }
+
+        stage('Deploy Application') {
+            steps {
+                script {
+                    deployApp([
                         deploymentPath: '/home/ubuntu/mini/chattingo/'
                     ])
                 }
