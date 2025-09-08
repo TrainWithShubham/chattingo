@@ -1,49 +1,44 @@
-version: '3.8'
-
 services:
   mysql:
     image: mysql:8.0
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      MYSQL_DATABASE: ${MYSQL_DATABASE}
-      MYSQL_USER: ${MYSQL_USER}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
-    env_file:
-      - ./backend/.env
+      MYSQL_ROOT_PASSWORD: securepassword123
+      MYSQL_DATABASE: chattingo_db
+      MYSQL_USER: chattingo
+      MYSQL_PASSWORD: chatpassword123
     ports:
       - "3306:3306"
     volumes:
       - mysql_data:/var/lib/mysql
     networks:
       - chattingo-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
 
   backend:
-    build: ./backend
+    image: chattingo-app/backend:latest
     env_file:
       - ./backend/.env
     depends_on:
-      - mysql
+      mysql:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
     networks:
       - chattingo-network
+    restart: unless-stopped
 
   frontend:
-    build: ./frontend
+    image: chattingo-app/frontend:latest
     env_file:
       - ./frontend/.env
-    networks:
-      - chattingo-network
-
-  nginx:
-    image: nginx:alpine
     ports:
-      - "80:80"
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
-    depends_on:
-      - frontend
-      - backend
+      - "3000:3000"
     networks:
       - chattingo-network
+    restart: unless-stopped
 
 volumes:
   mysql_data:
