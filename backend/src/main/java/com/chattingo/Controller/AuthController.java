@@ -56,13 +56,10 @@ public class AuthController {
 
         userRepository.save(createdUser);
 
-        Authentication authentication = this.authenticate(email, password);
-        SecurityContextHolder.getContext().setAuthentication(authentication);
-
-
-        String jwt = this.tokenProvider.generateToken(authentication);
-
-        AuthResponse response = new AuthResponse(jwt, true);
+        // Don't auto-authenticate on signup
+        // User should manually sign in after registration
+        
+        AuthResponse response = new AuthResponse(null, true);
 
         return new ResponseEntity<AuthResponse>(response, HttpStatus.ACCEPTED);
     }

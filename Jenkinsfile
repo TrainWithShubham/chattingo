@@ -3,10 +3,12 @@ pipeline {
 
     environment {
         DOCKER_HUB_CREDENTIALS = credentials('docker-hub-credentials')
-        REGISTRY = 'chattingo-app'
-        IMAGE_TAG = "${BUILD_NUMBER}"
-        AWS_DEFAULT_REGION = 'ap-south-1'
-        S3_BUCKET = 'chattingo-app'
+        AWS_CREDENTIALS        = credentials('aws-cred')
+        FRONTEND_REPO          = credentials('frontend-repo')
+        BACKEND_REPO           = credentials('backend-repo')
+        IMAGE_TAG              = "${BUILD_NUMBER}"
+        AWS_DEFAULT_REGION     = credentials('my-region')
+        S3_BUCKET              = credentials('bucket')
     }
 
     stages {
@@ -19,8 +21,8 @@ pipeline {
         stage('Image Build') {
             steps {
                 script {
-                    sh 'docker build -t ${REGISTRY}/frontend:${IMAGE_TAG} ./frontend'
-                    sh 'docker build -t ${REGISTRY}/backend:${IMAGE_TAG} ./backend'
+                    sh 'docker build --no-cache -t ${FRONTEND_REPO}:${IMAGE_TAG} ./frontend'
+                    sh 'docker build --no-cache -t ${BACKEND_REPO}:${IMAGE_TAG} ./backend'
                 }
             }
         }
@@ -28,11 +30,7 @@ pipeline {
         stage('Filesystem Scan') {
             steps {
                 script {
-                    sh '''
-                        echo "Starting filesystem security scan..." > filesystem-scan-results.txt
-                        docker run --rm -v $(pwd):/src securecodewarrior/docker-security-scanner /src >> filesystem-scan-results.txt 2>&1
-                        echo "Filesystem scan completed at $(date)" >> filesystem-scan-results.txt
-                    '''
+                    sh 'trivy fs --format json --output filesystem-scan-report.json .'
                 }
             }
         }
@@ -40,14 +38,8 @@ pipeline {
         stage('Image Scan') {
             steps {
                 script {
-                    sh '''
-                        echo "Starting Docker image security scan..." > docker-scan-results.txt
-                        echo "Scanning frontend image..." >> docker-scan-results.txt
-                        docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy image ${REGISTRY}/frontend:${IMAGE_TAG} >> docker-scan-results.txt 2>&1
-                        echo "Scanning backend image..." >> docker-scan-results.txt
-                        docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy image ${REGISTRY}/backend:${IMAGE_TAG} >> docker-scan-results.txt 2>&1
-                        echo "Docker image scan completed at $(date)" >> docker-scan-results.txt
-                    '''
+                    sh 'trivy image --format json --output frontend-scan-report.json ${FRONTEND_REPO}:${IMAGE_TAG}'
+                    sh 'trivy image --format json --output backend-scan-report.json ${BACKEND_REPO}:${IMAGE_TAG}'
                 }
             }
         }
@@ -57,30 +49,56 @@ pipeline {
                 script {
                     def timestamp = new Date().format('yyyy-MM-dd-HH-mm-ss')
 
-                    // Upload scan results to S3
-                    sh "aws s3 cp filesystem-scan-results.txt s3://${S3_BUCKET}/jenkins-chattingo-app-scanning/filesystem-scan-${timestamp}.txt"
-                    sh "aws s3 cp docker-scan-results.txt s3://${S3_BUCKET}/jenkins-chattingo-app-scanning/docker-scan-${timestamp}.txt"
+                    withCredentials([aws(credentialsId: 'aws-cred')]) {
+                        ['filesystem-scan-report.json', 'frontend-scan-report.json', 'backend-scan-report.json'].each { file ->
+                            sh """
+                                docker run --rm \
+                                    -e AWS_ACCESS_KEY_ID=\$AWS_ACCESS_KEY_ID \
+                                    -e AWS_SECRET_ACCESS_KEY=\$AWS_SECRET_ACCESS_KEY \
+                                    -e AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION} \
+                                    -v \$(pwd):/workspace \
+                                    amazon/aws-cli s3 cp /workspace/${file} s3://${S3_BUCKET}/jenkins-chattingo-app-scanning/${file.replace('.json','')}-${timestamp}.json
+                            """
+                        }
 
-                    // Generate 5-minute presigned URLs
-                    def filesystemUrl = sh(
-                        script: "aws s3 presign s3://${S3_BUCKET}/jenkins-chattingo-app-scanning/filesystem-scan-${timestamp}.txt --expires-in 300",
-                        returnStdout: true
-                    ).trim()
+                        def filesystemUrl = sh(
+                            script: """docker run --rm \
+                                -e AWS_ACCESS_KEY_ID=\$AWS_ACCESS_KEY_ID \
+                                -e AWS_SECRET_ACCESS_KEY=\$AWS_SECRET_ACCESS_KEY \
+                                -e AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION} \
+                                amazon/aws-cli s3 presign s3://${S3_BUCKET}/jenkins-chattingo-app-scanning/filesystem-scan-report-${timestamp}.json --expires-in 300""",
+                            returnStdout: true
+                        ).trim()
 
-                    def dockerUrl = sh(
-                        script: "aws s3 presign s3://${S3_BUCKET}/jenkins-chattingo-app-scanning/docker-scan-${timestamp}.txt --expires-in 300",
-                        returnStdout: true
-                    ).trim()
+                        def frontendUrl = sh(
+                            script: """docker run --rm \
+                                -e AWS_ACCESS_KEY_ID=\$AWS_ACCESS_KEY_ID \
+                                -e AWS_SECRET_ACCESS_KEY=\$AWS_SECRET_ACCESS_KEY \
+                                -e AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION} \
+                                amazon/aws-cli s3 presign s3://${S3_BUCKET}/jenkins-chattingo-app-scanning/frontend-scan-report-${timestamp}.json --expires-in 300""",
+                            returnStdout: true
+                        ).trim()
 
-                    echo "=== SCAN RESULTS URLS (Valid for 5 minutes) ==="
-                    echo "Filesystem Scan: ${filesystemUrl}"
-                    echo "Docker Scan: ${dockerUrl}"
+                        def backendUrl = sh(
+                            script: """docker run --rm \
+                                -e AWS_ACCESS_KEY_ID=\$AWS_ACCESS_KEY_ID \
+                                -e AWS_SECRET_ACCESS_KEY=\$AWS_SECRET_ACCESS_KEY \
+                                -e AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION} \
+                                amazon/aws-cli s3 presign s3://${S3_BUCKET}/jenkins-chattingo-app-scanning/backend-scan-report-${timestamp}.json --expires-in 300""",
+                            returnStdout: true
+                        ).trim()
 
-                    // Save URLs for reference
-                    writeFile file: 'scan-urls.txt', text: """Filesystem Scan: ${filesystemUrl}
-                    Docker Scan: ${dockerUrl}
-                    Generated: ${new Date()}
-                    Expires: 5 minutes"""
+                        echo "=== SCAN RESULTS URLS (Valid for 5 minutes) ==="
+                        echo "Filesystem Scan: ${filesystemUrl}"
+                        echo "Frontend Scan: ${frontendUrl}"
+                        echo "Backend Scan: ${backendUrl}"
+
+                        writeFile file: 'scan-urls.txt', text: """Filesystem Scan: ${filesystemUrl}
+                        Frontend Scan: ${frontendUrl}
+                        Backend Scan: ${backendUrl}
+                        Generated: ${new Date()}
+                        Expires: 5 minutes"""
+                    }
                 }
             }
         }
@@ -89,8 +107,8 @@ pipeline {
             steps {
                 script {
                     docker.withRegistry('https://index.docker.io/v1/', 'docker-hub-credentials') {
-                        sh 'docker push ${REGISTRY}/frontend:${IMAGE_TAG}'
-                        sh 'docker push ${REGISTRY}/backend:${IMAGE_TAG}'
+                        sh 'docker push ${FRONTEND_REPO}:${IMAGE_TAG}'
+                        sh 'docker push ${BACKEND_REPO}:${IMAGE_TAG}'
                     }
                 }
             }
@@ -99,8 +117,8 @@ pipeline {
         stage('Update Compose') {
             steps {
                 sh """
-                    sed -i 's|image: ${REGISTRY}/frontend:.*|image: ${REGISTRY}/frontend:${IMAGE_TAG}|g' docker-compose.yml
-                    sed -i 's|image: ${REGISTRY}/backend:.*|image: ${REGISTRY}/backend:${IMAGE_TAG}|g' docker-compose.yml
+                    sed -i 's|image: .*frontend.*|image: ${FRONTEND_REPO}:${IMAGE_TAG}|g' docker-compose.yml
+                    sed -i 's|image: .*backend.*|image: ${BACKEND_REPO}:${IMAGE_TAG}|g' docker-compose.yml
                 """
             }
         }
@@ -109,20 +127,52 @@ pipeline {
             steps {
                 script {
                     sh """
+                        echo "updated docker-compose.yml to deployment directory"
+                        cp docker-compose.yml /home/ubuntu/mini/chattingo/
+
+                        # go into deployment folder
                         cd /home/ubuntu/mini/chattingo
-                        docker-compose pull
-                        docker-compose up -d
+                        docker compose down
+                        docker compose pull
+                        docker compose up -d
+
+                        # return back to original workspace
+                        cd -
                     """
                 }
             }
         }
     }
-    }
 
     post {
         always {
-            archiveArtifacts artifacts: 'filesystem-scan-results.txt,docker-scan-results.txt,scan-urls.txt', allowEmptyArchive: true
-            sh 'docker system prune -f'
+            script {
+                // 1. Archive scan files (latest ones only)
+                archiveArtifacts artifacts: 'filesystem-scan-report.json,frontend-scan-report.json,backend-scan-report.json,scan-urls.txt', allowEmptyArchive: true
+
+                // 2. Cleanup old scan files in workspace (keep latest only)
+                sh '''
+                    echo "Cleaning up old scan reports..."
+                    for f in filesystem-scan-report.json frontend-scan-report.json backend-scan-report.json scan-urls.txt; do
+                    if [ -f "$f" ]; then
+                        echo "Keeping latest: $f"
+                    fi
+                    done
+
+                    # remove any older .json or .txt scan reports
+                    find . -maxdepth 1 -type f \\( -name "*scan*.json" -o -name "*scan*.txt" \\) ! -newer scan-urls.txt -exec rm -f {} +
+                '''
+
+                // 3. Remove unused Docker images (dangling + old build images)
+                sh '''
+                    echo "Cleaning up unused Docker images..."
+                    docker image prune -af --filter "until=24h" || true
+
+                    # Remove old build images except the current IMAGE_TAG
+                    docker images --format "{{.Repository}}:{{.Tag}}" | grep chattingo-app || true
+                    docker images --format "{{.Repository}}:{{.Tag}}" | grep chattingo-app | grep -v ":${IMAGE_TAG}" | xargs -r docker rmi -f
+                '''
+            }
         }
     }
 }

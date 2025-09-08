@@ -18,7 +18,7 @@ services:
       retries: 10
 
   backend:
-    image: chattingo-app/backend:latest
+    image: dushyantkumark/chattingo-app-backend:30
     env_file:
       - ./backend/.env
     depends_on:
@@ -31,7 +31,7 @@ services:
     restart: unless-stopped
 
   frontend:
-    image: chattingo-app/frontend:latest
+    image: dushyantkumark/chattingo-app-frontend:30
     env_file:
       - ./frontend/.env
     ports:
