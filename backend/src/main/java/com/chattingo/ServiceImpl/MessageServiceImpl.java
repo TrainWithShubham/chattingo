@@ -45,11 +45,17 @@ public class MessageServiceImpl implements MessageService {
 
         message = this.messageRepository.save(message);
 
-        // Send message to WebSocket topic based on chat type
-        if (chat.isGroup()) {
-            messagingTemplate.convertAndSend("/group/" + chat.getId(), message);
-        } else {
-            messagingTemplate.convertAndSend( "/user/" + chat.getId(), message);
+        // TODO: Fix WebSocket messaging - temporarily disabled to prevent 500 errors
+        try {
+            // Send message to WebSocket topic based on chat type
+            if (chat.isGroup()) {
+                messagingTemplate.convertAndSend("/group/" + chat.getId(), message);
+            } else {
+                messagingTemplate.convertAndSend("/user/" + chat.getId(), message);
+            }
+        } catch (Exception e) {
+            // Log the error but don't fail the message creation
+            System.err.println("WebSocket messaging failed: " + e.getMessage());
         }
 
         return message;

@@ -53,7 +53,7 @@ function HomePage() {
         Authorization: `Bearer ${token}`,
         "X-XSRF-TOKEN": getCookie("XSRF-TOKEN"),
       },
-      onConnect: onConnect,
+      onConnect: () => onConnect(client),
       onStompError: onError,
       debug: (str) => {
         console.log('STOMP: ' + str);
@@ -79,17 +79,18 @@ function HomePage() {
   };
 
   // Callback for successful WebSocket connection
-  const onConnect = () => {
+  const onConnect = (client) => {
     setIsConnected(true);
+    setStompClient(client); // Ensure the client is set in state
 
     // Subscribe to the current chat messages based on the chat type
-    if (stompClient && currentChat) {
+    if (client && currentChat) {
       if (currentChat.group) {
         // Subscribe to group chat messages
-        stompClient.subscribe(`/group/${currentChat?.id}`, onMessageReceive);
+        client.subscribe(`/group/${currentChat?.id}`, onMessageReceive);
       } else {
         // Subscribe to direct user messages
-        stompClient.subscribe(`/user/${currentChat?.id}`, onMessageReceive);
+        client.subscribe(`/user/${currentChat?.id}`, onMessageReceive);
       }
     }
   };
@@ -128,9 +129,13 @@ function HomePage() {
 
   // Effect to handle sending a new message via WebSocket
   useEffect(() => {
-    if (message.newMessage && isConnected && stompClient && currentChat?.id) {
-      stompClient.send("/app/message", {}, JSON.stringify(message.newMessage));
-      setMessages((prevMessages) => [...prevMessages, message.newMessage]);
+    if (message.newMessage && isConnected && stompClient && stompClient.connected && currentChat?.id) {
+      try {
+        stompClient.send("/app/message", {}, JSON.stringify(message.newMessage));
+        setMessages((prevMessages) => [...prevMessages, message.newMessage]);
+      } catch (error) {
+        console.error("Failed to send WebSocket message:", error);
+      }
     }
   }, [message.newMessage, isConnected, stompClient, currentChat]);
 

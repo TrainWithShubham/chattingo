@@ -21,9 +21,9 @@ const Signup = () => {
     e.preventDefault();
     const res = await dispatch(register(inputData));
     if (res && res.jwt) {
-      await dispatch(currentUser(res.jwt));
       setOpenSnackbar(true);
-      navigate("/");
+      // Don't auto-login, just show success message
+      // User needs to manually sign in
     } else {
       // optionally show error toast/snackbar here
     }
