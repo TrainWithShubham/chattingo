@@ -43,8 +43,7 @@ public class AppConfig {
             .addFilterBefore(jwtValidator, BasicAuthenticationFilter.class)
             .csrf(csrf -> csrf.disable())
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
-            .formLogin(Customizer.withDefaults())
-            .httpBasic(Customizer.withDefaults());
+            .formLogin(Customizer.withDefaults());
 
         return http.build();
     }
