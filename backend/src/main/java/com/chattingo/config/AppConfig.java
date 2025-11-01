@@ -33,7 +33,6 @@ public class AppConfig {
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
-
         http
             .sessionManagement(management -> management.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(authorize -> authorize
@@ -54,8 +53,8 @@ public class AppConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         return request -> {
             CorsConfiguration cfg = new CorsConfiguration();
+
             String[] origins = allowedOrigins.split(",");
-            cfg.setAllowedOrigins(Arrays.asList(origins));
             cfg.setAllowedOriginPatterns(Arrays.asList(origins));
 
             String[] methods = allowedMethods.split(",");
