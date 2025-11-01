@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: chattingo-backend
-          image:      routparesh/chattingo-backend:8e1702f69255627cdf6389a1e340488c663af363
+          image: routparesh/chattingo-backend:8e1702f69255627cdf6389a1e340488c663af363
           ports:
             - containerPort: 8080
           env:
@@ -26,3 +26,9 @@ spec:
               value: root
             - name: SPRING_DATASOURCE_PASSWORD
               value: test@123
+            - name: CORS_ALLOWED_ORIGINS
+              value: 'http://chattingo.paresh.work'
+            - name: CORS_ALLOWED_METHODS
+              value: 'GET,POST,PUT,DELETE,OPTIONS'
+            - name: CORS_ALLOWED_HEADERS
+              value: '*'

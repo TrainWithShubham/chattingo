@@ -19,13 +19,3 @@ spec:
           image: routparesh/chattingo-frontend:8f320729b4a13ba1fc67c0556d83637162c9a5
           ports:
             - containerPort: 80
-          volumeMounts:
-            - name: nginx-config-volume
-              mountPath: /etc/nginx/conf.d/
-      volumes:
-        - name: nginx-config-volume
-          configMap:
-            name: chattingo-frontend-nginx-config # Reference the ConfigMap created in Step 1
-            items:
-              - key: default.conf
-                path: default.conf
