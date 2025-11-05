@@ -6,7 +6,6 @@ import java.util.Collections;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -16,7 +15,7 @@ import org.springframework.security.web.authentication.www.BasicAuthenticationFi
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 
-import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 
 @Configuration
 public class AppConfig {
@@ -35,41 +34,47 @@ public class AppConfig {
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
-
-        http.sessionManagement(management -> management.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .authorizeHttpRequests(authorize -> authorize.requestMatchers("/api/**").authenticated()
-                        .anyRequest().permitAll())
-                .addFilterBefore(jwtValidator, BasicAuthenticationFilter.class)
-                .csrf(csrf -> csrf.disable())
-                .cors(cors -> cors.configurationSource(new CorsConfigurationSource() {
-                    @SuppressWarnings("null")
-                    @Override
-                    public CorsConfiguration getCorsConfiguration(HttpServletRequest request) {
-                        CorsConfiguration cfg = new CorsConfiguration();
-
-                        // Parse allowed origins from environment variable
-                        String[] origins = allowedOrigins.split(",");
-                        cfg.setAllowedOrigins(Arrays.asList(origins));
-                        cfg.setAllowedOriginPatterns(Arrays.asList(origins));
-
-                        // Parse allowed methods from environment variable
-                        String[] methods = allowedMethods.split(",");
-                        cfg.setAllowedMethods(Arrays.asList(methods));
-                        
-                        cfg.setAllowedHeaders(Collections.singletonList("*"));
-                        cfg.setExposedHeaders(Arrays.asList("Authorization"));
-                        cfg.setAllowCredentials(true);
-                        cfg.setMaxAge(3600L);
-
-                        return cfg;
-                    }
-                })).formLogin(Customizer.withDefaults()).httpBasic(Customizer.withDefaults());
+        http
+            .sessionManagement(management -> management.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            .authorizeHttpRequests(authorize -> authorize
+                .requestMatchers("/login", "/signup").permitAll()
+                .requestMatchers("/api/**").authenticated()
+                .anyRequest().permitAll()
+            )
+            .addFilterBefore(jwtValidator, BasicAuthenticationFilter.class)
+            .csrf(csrf -> csrf.disable())
+            .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+            .exceptionHandling(exceptions -> exceptions
+                .authenticationEntryPoint(
+                    (request, response, authException) -> response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Unauthorized")
+                )
+            );
 
         return http.build();
     }
 
     @Bean
-    PasswordEncoder passwordEncoder() {
+    public CorsConfigurationSource corsConfigurationSource() {
+        return request -> {
+            CorsConfiguration cfg = new CorsConfiguration();
+
+            String[] origins = allowedOrigins.split(",");
+            cfg.setAllowedOriginPatterns(Arrays.asList(origins));
+
+            String[] methods = allowedMethods.split(",");
+            cfg.setAllowedMethods(Arrays.asList(methods));
+
+            cfg.setAllowedHeaders(Collections.singletonList("*"));
+            cfg.setExposedHeaders(Collections.singletonList("Authorization"));
+            cfg.setAllowCredentials(true);
+            cfg.setMaxAge(3600L);
+
+            return cfg;
+        };
+    }
+
+    @Bean
+    public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
     }
 }

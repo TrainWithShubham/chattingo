@@ -1,0 +1,37 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: chattingo-ingress
+  namespace: chattingo
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80}]'
+    alb.ingress.kubernetes.io/group.name: chattingo-group
+    alb.ingress.kubernetes.io/healthcheck-path: /
+    alb.ingress.kubernetes.io/backend-protocol: HTTP
+    alb.ingress.kubernetes.io/load-balancer-attributes: idle_timeout.timeout_seconds=120
+spec:
+  ingressClassName: alb
+  rules:
+    - host: chattingo.paresh.work
+      http:
+        paths:
+          # Backend APIs
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: chattingo-backend-service
+                port:
+                  number: 8080
+
+          # Frontend
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: chattingo-frontend-service
+                port:
+                  number: 80

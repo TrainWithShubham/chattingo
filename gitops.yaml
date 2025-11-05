@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: chattingo-application
+  namespace: argocd # Must match the namespace where Argo CD is installed
+spec:
+  project: default # The Argo CD project this application belongs to
+  source:
+    repoURL: https://github.com/Routparesh/chattingo.git # URL of the Git repository
+    targetRevision: main # The branch, tag, or commit hash to deploy
+    path: k8s # Path within the repository to the Kubernetes manifests
+  destination:
+    server: https://kubernetes.default.svc # The target Kubernetes cluster API server URL
+    namespace: chattingo # The namespace in the target cluster where resources will be deployed
+  syncPolicy:
+    automated:
+      prune: true # Automatically delete resources that are no longer in Git
+      selfHeal: true # Automatically sync resources if they drift from Git
+    syncOptions:
+      - CreateNamespace=true # Create the destination namespace if it does not exist

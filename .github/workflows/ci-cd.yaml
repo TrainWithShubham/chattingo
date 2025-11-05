@@ -1,0 +1,242 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [main, docker]
+
+env:
+  FRONTEND_IMAGE: routparesh/chattingo-frontend
+  BACKEND_IMAGE: routparesh/chattingo-backend
+
+jobs:
+  # ---------------- FRONTEND TEST ----------------
+  frontend-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Install frontend dependencies
+        working-directory: ./frontend
+        run: npm install
+
+      - name: Run frontend tests
+        working-directory: ./frontend
+        run: |
+          if [ -f package.json ] && grep -q "\"test\":" package.json; then
+            npm test -- --coverage
+          else
+            echo "⚠️ No test script found in frontend/package.json"
+          fi
+
+  # ---------------- BACKEND CI (Build + Test + Sonar) ----------------
+  backend-ci:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test@123
+          MYSQL_DATABASE: chattingo_db
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping --silent"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Cache Maven packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2
+
+      - name: Load backend environment variables
+        working-directory: ./backend
+        run: |
+          echo "SPRING_DATASOURCE_URL=jdbc:mysql://localhost:3306/chattingo_db" >> $GITHUB_ENV
+          echo "SPRING_DATASOURCE_USERNAME=root" >> $GITHUB_ENV
+          echo "SPRING_DATASOURCE_PASSWORD=test@123" >> $GITHUB_ENV
+          echo "JWT_SECRET=${{ secrets.JWT_SECRET }}" >> $GITHUB_ENV
+
+      - name: Wait for MySQL to be ready
+        run: |
+          for i in {1..15}; do
+            nc -zv 127.0.0.1 3306 && echo "✅ MySQL is ready!" && break
+            echo "⏳ Waiting for MySQL..."
+            sleep 5
+          done
+
+      - name: Build and Run Tests
+        working-directory: ./backend
+        run: mvn clean verify
+
+      - name: SonarQube Analysis
+        working-directory: ./backend
+        run: |
+          mvn sonar:sonar \
+            -Dsonar.projectKey=chattingo-backend \
+            -Dsonar.projectName=chattingo-backend \
+            -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
+            -Dsonar.login=${{ secrets.SONAR_TOKEN }} \
+            -Dsonar.java.binaries=target/classes
+
+  # ---------------- SONAR SCAN (Frontend Only) ----------------
+  sonar-frontend:
+    runs-on: ubuntu-latest
+    needs: [frontend-test, backend-ci]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: SonarQube Scan (frontend)
+        uses: sonarsource/sonarqube-scan-action@v3
+        with:
+          projectBaseDir: ./frontend
+          args: >
+            -Dsonar.projectName=chattingo-frontend
+            -Dsonar.projectKey=chattingo-frontend
+            -Dsonar.sources=src
+            -Dsonar.tests=src
+            -Dsonar.test.inclusions=**/*.test.js,**/*.spec.js
+            -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+
+  # ---------------- SECURITY SCAN ----------------
+  security-scan:
+    runs-on: ubuntu-latest
+    needs: sonar-frontend
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks Scan
+        uses: gitleaks/gitleaks-action@v2
+        with:
+          args: detect --source . --no-banner --verbose
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Install Frontend Dependencies
+        working-directory: ./frontend
+        run: npm install
+
+      - name: Run npm audit for vulnerabilities
+        working-directory: ./frontend
+        run: npm audit --audit-level=low || true
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: OWASP Dependency Check (Backend)
+        uses: dependency-check/Dependency-Check_Action@main
+        env:
+          JAVA_HOME: /opt/jdk
+        with:
+          project: chattingo-backend
+          path: ./backend
+          format: 'HTML'
+          out: reports
+
+      - name: Upload Dependency Check Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-check-report
+          path: reports
+
+      - name: Run Trivy Filesystem Scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: .
+          format: 'table'
+          exit-code: '0'
+
+      - name: Build Images for Scanning
+        run: |
+          docker build -t frontend-scan ./frontend
+          docker build -t backend-scan ./backend
+
+      - name: Run Trivy Image Scan (Frontend)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'frontend-scan'
+          format: 'table'
+          exit-code: '0'
+
+      - name: Run Trivy Image Scan (Backend)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'backend-scan'
+          format: 'table'
+          exit-code: '0'
+
+  # ---------------- DOCKER BUILD & DEPLOY ----------------
+  docker-deploy:
+    runs-on: ubuntu-latest
+    needs: security-scan
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and Push Frontend image
+        working-directory: ./frontend
+        run: |
+          FRONTEND_BUILD_ARGS="--build-arg REACT_APP_API_URL=http://chattingo.paresh.work/api"
+
+          docker build  $FRONTEND_BUILD_ARGS -t ${{ env.FRONTEND_IMAGE }}:${{ github.sha }} .
+          docker push ${{ env.FRONTEND_IMAGE }}:${{ github.sha }}
+
+      - name: Build and Push Backend image
+        working-directory: ./backend
+        run: |
+          docker build -t ${{ env.BACKEND_IMAGE }}:${{ github.sha }} .
+          docker push ${{ env.BACKEND_IMAGE }}:${{ github.sha }}
+
+      - name: Update image tags in Kubernetes manifests
+        run: |
+          sed -i "s|routparesh/chattingo-frontend:.*| ${{ env.FRONTEND_IMAGE }}:${{ github.sha }}|g" k8s/chattingo-frontend-deployment.yaml
+          sed -i "s|routparesh/chattingo-backend:.*| ${{ env.BACKEND_IMAGE }}:${{ github.sha }}|g" k8s/chattingo-backend-deployment.yaml
+
+      - name: Commit updated image tags
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add k8s/*.yaml
+          git commit -m "update images to ${{ github.sha }}"
+          git push

@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chattingo-db-deployment
+  labels:
+    app: chattingo-db
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: chattingo-db
+  template:
+    metadata:
+      labels:
+        app: chattingo-db
+    spec:
+      containers:
+        - name: chattingo-db
+          image: mysql:8.0
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              value: 'test@123'
+            - name: MYSQL_DATABASE
+              value: 'chattingo_db'
+          ports:
+            - containerPort: 3306

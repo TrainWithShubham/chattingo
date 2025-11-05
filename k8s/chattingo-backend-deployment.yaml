@@ -1,0 +1,34 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chattingo-backend-deployment
+  labels:
+    app: chattingo-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: chattingo-backend
+  template:
+    metadata:
+      labels:
+        app: chattingo-backend
+    spec:
+      containers:
+        - name: chattingo-backend
+          image:      routparesh/chattingo-backend:d1f8b88c7c26ae078d2ce31e1062b52ae13ab753
+          ports:
+            - containerPort: 8080
+          env:
+            - name: SPRING_DATASOURCE_URL
+              value: jdbc:mysql://db:3306/chattingo_db?createDatabaseIfNotExist=true
+            - name: SPRING_DATASOURCE_USERNAME
+              value: root
+            - name: SPRING_DATASOURCE_PASSWORD
+              value: test@123
+            - name: CORS_ALLOWED_ORIGINS
+              value: 'http://chattingo.paresh.work'
+            - name: CORS_ALLOWED_METHODS
+              value: 'GET,POST,PUT,DELETE,OPTIONS'
+            - name: CORS_ALLOWED_HEADERS
+              value: '*'

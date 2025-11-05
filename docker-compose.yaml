@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  db:
+    image: mysql:latest
+    environment:
+      MYSQL_ROOT_PASSWORD: test@123
+      MYSQL_DATABASE: chattingo_db
+    volumes:
+      - db-data:/var/lib/mysql
+    healthcheck:
+      test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: ./backend
+    image: routparesh/chattingo-backend:latest
+    container_name: backend
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_HOST: db
+      DB_USER: root
+      DB_PASS: test@123
+      DB_NAME: usersdb
+    env_file:
+      - ./backend/.env
+    ports:
+      - '8080:8080'
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: routparesh/chattingo-frontend:latest
+    ports:
+      - '3000:80'
+
+volumes:
+  db-data:
